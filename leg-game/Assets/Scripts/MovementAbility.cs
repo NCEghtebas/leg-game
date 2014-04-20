@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 
 public class MovementAbility : MonoBehaviour
 {
@@ -29,6 +30,10 @@ public class MovementAbility : MonoBehaviour
 	public Transform m_rayOriginCB;
 	public Transform m_rayOriginLB;
 	public Transform m_rayOriginRB;
+
+	public List<Transform> m_raysLeft;
+	public List<Transform> m_raysRight;
+
 	private LayerMask m_layerMask;
 //	public Vector2 m_accel;
 	public Vector2 m_vel;
@@ -68,12 +73,14 @@ public class MovementAbility : MonoBehaviour
 
 	void Move ()
 	{
+		Vector2 deltaPos = Vector2.zero;
+
 		if (m_ASDMovementCurveCurrentTime > m_ASDMovementCurveDuration / 2f) {
 			m_ASDMovementCurveCurrentTime = m_ASDMovementCurveDuration / 2f;
 		}
-		m_vel.x = m_horizMovement * m_ASDMovementCurve.Evaluate (m_ASDMovementCurveCurrentTime / m_ASDMovementCurveDuration) * m_ASDMovementCurveMaxSpeed;
+		deltaPos.x = Time.fixedDeltaTime * (m_horizMovement * m_ASDMovementCurve.Evaluate (m_ASDMovementCurveCurrentTime / m_ASDMovementCurveDuration) * m_ASDMovementCurveMaxSpeed);
 
-		if (Mathf.Approximately (m_vel.x, 0f)) {
+		if (!m_isInputMoving) {
 			m_ASDMovementCurveCurrentTime = 0f;
 		}
 		m_ASDMovementCurveCurrentTime += Time.fixedDeltaTime * Mathf.Abs (m_horizMovement);
@@ -88,48 +95,89 @@ public class MovementAbility : MonoBehaviour
 
 //		ForceTerminalVelocity ();
 
-		Vector2 deltaPos = m_vel * Time.fixedDeltaTime;
+		float offset = 0.001f;
 
 		Vector2 originCB = (Vector2)m_rayOriginCB.position;
 		Vector2 originLB = (Vector2)m_rayOriginLB.position;
 		Vector2 originRB = (Vector2)m_rayOriginRB.position;
 //		RaycastHit2D hitCB = Physics2D.Raycast (originCB, Vector2.up, 1f, m_layerMask);
-		RaycastHit2D hitLB = Physics2D.Raycast (originLB, Vector2.up, 1f, m_layerMask);
-		RaycastHit2D hitRB = Physics2D.Raycast (originRB, Vector2.up, 1f, m_layerMask);
+		RaycastHit2D hitLB = Physics2D.Raycast (originLB, -Vector2.up, offset, m_layerMask);
+		RaycastHit2D hitRB = Physics2D.Raycast (originRB, -Vector2.up, offset, m_layerMask);
 		if (hitLB.collider == null && hitRB.collider == null) {
 			if (!m_isFalling) {
 				m_ASDFallingCurveCurrentTime = 0f;
 			}
 			m_isFalling = true;
-		} else {
-			m_isFalling = false;
 		}
 
+//		Vector2 deltaPos = m_vel * Time.fixedDeltaTime;
 		if (m_isFalling) {
 			if (m_ASDFallingCurveCurrentTime > m_ASDFallingCurveDuration / 2f) {
 				m_ASDFallingCurveCurrentTime = m_ASDFallingCurveDuration / 2f;
 			}
-			m_vel.y = m_ASDFallingCurve.Evaluate (m_ASDFallingCurveCurrentTime / m_ASDFallingCurveDuration) * m_gravity;
+			deltaPos.y = (m_ASDFallingCurve.Evaluate (m_ASDFallingCurveCurrentTime / m_ASDFallingCurveDuration) * m_gravity) * Time.fixedDeltaTime;
 
 			m_ASDFallingCurveCurrentTime += Time.fixedDeltaTime;
 
+			// If we're falling
+//		if (deltaPos.y < 0) {
+//			Vector2 origin = (Vector2)m_rayOriginCB.position;
+//			RaycastHit2D hit = Physics2D.Raycast (origin, Vector2.up, deltaPos.y, m_layerMask);
+
+			hitLB = Physics2D.Raycast (originLB + Vector2.right * offset, -Vector2.up, -deltaPos.y, m_layerMask);
+			hitRB = Physics2D.Raycast (originRB - Vector2.right * offset, -Vector2.up, -deltaPos.y, m_layerMask);
+			if (hitLB.collider) {
+				deltaPos.y = (hitLB.point - originLB).y;
+				m_isFalling = false;
+				m_vel.y = 0f;
+			}
+
+			if (hitRB.collider) {
+				float diff = (hitRB.point - originRB).y;
+				if (diff < deltaPos.y) {
+					deltaPos.y = diff;
+				}
+				m_isFalling = false;
+				m_vel.y = 0f;
+			}
 		}
 
-		// If we're falling
-		if (deltaPos.y < 0) {
-			Vector2 origin = (Vector2)m_rayOriginCB.position;
-			RaycastHit2D hit = Physics2D.Raycast (origin, Vector2.up, deltaPos.y, m_layerMask);
-			if (hit.collider) {
-				deltaPos.y = (hit.point - origin).y;
+
+//		Debug.Log ("DeltaposX: " + deltaPos.x);
+		if (deltaPos.x < 0f) {
+			foreach (Transform rayOriginTransform in m_raysLeft) {
+				Vector2 rayOrigin = (Vector2)rayOriginTransform.position;
+				RaycastHit2D hit = Physics2D.Raycast (rayOrigin + Vector2.up * offset, Vector2.right, deltaPos.x, m_layerMask);
+				if (hit.collider) {
+					deltaPos.x = Mathf.Max (deltaPos.x, (hit.point - rayOrigin).x);
+				}
+			}
+		} else if (deltaPos.x > 0f) {
+			foreach (Transform rayOriginTransform in m_raysRight) {
+				Vector2 rayOrigin = (Vector2)rayOriginTransform.position;
+				RaycastHit2D hit = Physics2D.Raycast (rayOrigin + Vector2.up * offset, Vector2.right, deltaPos.x, m_layerMask);
+				if (hit.collider) {
+					deltaPos.x = Mathf.Min (deltaPos.x, (hit.point - rayOrigin).x);
+				}
 			}
 		}
 
 		DEBUG = deltaPos.y;
 
-		Vector2 newPos = (Vector2)transform.position + deltaPos;
+		Vector2 newPos = SnapToPixels ((Vector2)transform.position + deltaPos);
 		transform.position = newPos;
 	}
 
+	float SnapToPixels (float val)
+	{
+		return Mathf.Round (val * 100f) / 100f;
+	}
+
+	Vector2 SnapToPixels (Vector2 val)
+	{
+		return new Vector2 (SnapToPixels (val.x), SnapToPixels (val.y));
+	}
+	
 	// XXX: When standing on ground, should not ApplyGravity
 //	void ApplyGravity ()
 //	{
